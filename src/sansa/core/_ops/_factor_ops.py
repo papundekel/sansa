@@ -7,6 +7,7 @@
 # We use a modification of the icfm algorithm by Lin and More: https://epubs.siam.org/doi/abs/10.1137/S1064827597327334
 #
 ########################################################################################################################
+import ctypes
 import logging
 
 import numpy as np
@@ -15,6 +16,20 @@ import scipy.sparse as sp
 from numba import njit
 
 logger = logging.getLogger(__name__)
+
+libsansa = np.ctypeslib.load_library("libsansa", loader_path="./")
+libsansa.core_icf.argtypes = [
+    ctypes.c_int64,
+    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"),
+    np.ctypeslib.ndpointer(dtype=np.int64, ndim=1, flags="C_CONTIGUOUS"),
+    np.ctypeslib.ndpointer(dtype=np.int64, ndim=1, flags="C_CONTIGUOUS"),
+    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"),
+    np.ctypeslib.ndpointer(dtype=np.int64, ndim=1, flags="C_CONTIGUOUS"),
+    np.ctypeslib.ndpointer(dtype=np.int64, ndim=1, flags="C_CONTIGUOUS"),
+    ctypes.c_int64,
+    ctypes.c_float,
+]
+libsansa.core_icf.restype = ctypes.c_int64
 
 
 def icf(
@@ -43,7 +58,7 @@ def icf(
     nnz = np.int64(-1)
     while nnz == -1:
         counter += 1
-        nnz = _core_icf(
+        nnz = _core_icf2(
             n,
             A.data,
             A.indices,
@@ -67,6 +82,30 @@ def icf(
     Lv = Lv[:nnz]
     Lr = Lr[:nnz]
     return sp.csc_matrix((Lv, Lr, Lp), (n, n))
+
+
+def _core_icf2(
+    n: np.int64,
+    Av: npt.NDArray[np.float32],
+    Ar: npt.NDArray[np.int64],
+    Ap: npt.NDArray[np.int64],
+    Lv: npt.NDArray[np.float32],
+    Lr: npt.NDArray[np.int64],
+    Lp: npt.NDArray[np.int64],
+    max_nnz: np.int64,
+    shift: np.float32,
+) -> np.int64:
+    return libsansa.core_icf(
+        n,
+        Av,
+        Ar,
+        Ap,
+        Lv,
+        Lr,
+        Lp,
+        max_nnz,
+        shift,
+    )
 
 
 # TODO delete signatures?
