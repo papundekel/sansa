@@ -21,7 +21,6 @@ extern "C" std::int64_t core_icf(std::int64_t n,
                                  float shift)
 {
     auto nnz = std::int64_t(0);
-    auto c_n = std::int64_t(0);
     auto s = std::vector<std::int64_t>(n, 0);
     auto t = std::vector<std::int64_t>(n, 0);
     auto l = std::vector<std::int64_t>(n, -1);
@@ -30,6 +29,10 @@ extern "C" std::int64_t core_icf(std::int64_t n,
     auto b = std::vector<bool>(n, false);
     auto c = std::vector<std::int64_t>(n);
     auto d = std::vector<float>(n, shift);
+
+    auto aa_buffer = std::vector<float>(n);
+    auto largest_indices_buffer = std::vector<std::int64_t>(max_nnz);
+    auto sorted_cc_buffer = std::vector<std::int64_t>(n);
 
     for (const auto j : std::views::iota(0, n))
     {
@@ -52,6 +55,8 @@ extern "C" std::int64_t core_icf(std::int64_t n,
 
     for (const auto j : std::views::iota(0, n))
     {
+        auto c_n = std::int64_t(0);
+
         for (const auto idx : std::views::iota(t[j], Ap[j + 1]))
         {
             const auto i = Ar[idx];
@@ -118,20 +123,23 @@ extern "C" std::int64_t core_icf(std::int64_t n,
                                                    return std::abs(a[i]);
                                                });
 
-            auto aa = std::vector(aa_view.begin(), aa_view.end());
+            std::copy(dpl::execution::unseq,
+                      aa_view.begin(),
+                      aa_view.end(),
+                      aa_buffer.begin());
 
-            auto largest_indices = std::vector<std::size_t>(max_j_nnz);
+            auto largest_indices = std::span(largest_indices_buffer.begin(), max_j_nnz);
 
             const auto aa_indices_begin = dpl::counting_iterator<std::size_t>(0uz);
 
             std::partial_sort_copy(dpl::execution::unseq,
                                    aa_indices_begin,
-                                   aa_indices_begin + aa.size(),
+                                   aa_indices_begin + aa_view.size(),
                                    largest_indices.begin(),
                                    largest_indices.end(),
-                                   [&aa](std::size_t a, std::size_t b)
+                                   [&aa_buffer](std::size_t a, std::size_t b)
                                    {
-                                       return aa[a] > aa[b];
+                                       return aa_buffer[a] > aa_buffer[b];
                                    });
 
             const auto b_dereference_view = std::views::transform(
@@ -158,7 +166,12 @@ extern "C" std::int64_t core_icf(std::int64_t n,
         nnz += 1;
         s[j] = nnz;
 
-        auto sorted_cc = std::vector<std::int64_t>(cc_view.begin(), cc_view.end());
+        const auto sorted_cc = std::span(sorted_cc_buffer.begin(), cc_view.size());
+
+        std::copy(dpl::execution::unseq,
+                  cc_view.begin(),
+                  cc_view.end(),
+                  sorted_cc.begin());
         std::sort(sorted_cc.begin(), sorted_cc.end());
 
         for (const auto i : sorted_cc)
@@ -177,7 +190,6 @@ extern "C" std::int64_t core_icf(std::int64_t n,
             b[i] = false;
         }
 
-        c_n = 0;
         Lp[j + 1] = nnz;
 
         if (Lp[j] + 1 < Lp[j + 1])
